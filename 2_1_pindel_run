@@ -1,0 +1,43 @@
+#!/bin/bash
+
+#Author: Faisal Rezwan
+#E-mail: F.Rezwan@soton.ac.uk
+#Date: May 27, 2013 (latest)
+
+# name of the job
+#
+#PBS -N 2_1_pindel_run
+
+# name of the queue
+#
+#PBS -q batch
+
+#  this line selects 1 node and 1 processor on that node (nodes have 8 Processors Per Node)
+#
+#PBS -l nodes=1:ppn=1
+
+# request TWO hour of  walltime.  your job will be killed if it goes over.
+#
+#PBS -l walltime=2:00:00
+
+# change to current working directory
+cd $PBS_O_WORKDIR
+
+#include variables from file called "variables"
+. variables
+
+module load pindel/0.2.4
+
+pindel -f $humanRefSequence \
+-i "$sampleID".config.txt \
+-o $sampleID \
+-c $cnv_chr
+
+pindel2vcf -P $sampleID \
+-r $humanRefSequence \
+-R human_g1k_v37 \
+-d none -G \
+-v "$sampleID".cnv.vcf
+
+
+python 2_2_formatVCF.py "$sampleID".cnv.vcf "$sampleID".cnv.vcf.txt

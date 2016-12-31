@@ -1,0 +1,197 @@
+#!/bin/bash
+
+#Author: Faisal Rezwan
+#E-mail: F.Rezwan@soton.ac.uk
+#Date: May 27, 2013 (latest)
+
+# name of the job
+#
+#PBS -N 4_gatk_variant_quality_score_recalibration
+
+# name of the queue
+#
+#PBS -q batch
+
+#  this line selects 1 node and 1 processor on that node (nodes have 8 Processors Per Node)
+#
+#PBS -l nodes=1:ppn=6
+
+# request THREE hour of  walltime.  your job will be killed if it goes over.
+#
+#PBS -l walltime=3:00:00
+
+# change to current working directory
+cd $PBS_O_WORKDIR
+
+#include variables from file called "variables"
+. variables
+
+module load R/2.15.2
+
+# selecting SNPs from the unified genotyper raw VCF by GATK SelectVariants (shortest: less than 1 minute)
+
+#-Xmx4g is not enough memory for this part
+
+$javaPath/java -Xmx4g -Djava.io.tmpdir=$tmpDir \
+-jar $gatkPath/GenomeAnalysisTK.jar \
+-T SelectVariants \
+-R $humanRefSequence \
+--variant "$sampleID".GATKvariants.raw.vcf \
+-o "$sampleID".GATKsnps.raw.vcf \
+-selectType SNP \
+-log "$sampleID".SelectSNPS.log
+
+############################## Not suitable for single sampel call #############################
+##################################################################################################
+#
+# SNPs variant recalibration by GATK VariantRecalibration. (long: about 30 minutes)
+# It creates a Gaussian mixture model by looking at the annotations 
+# values over a high quality subset of the input call set and then evaluate all input variants.
+#
+#
+#$javaPath/java -Xmx4g -Djava.io.tmpdir=$tmpDir \
+#-jar  $gatkPath/GenomeAnalysisTK.jar \
+#-T VariantRecalibrator \
+#-R $humanRefSequence \
+#-input "$sampleID".GATKsnps.raw.vcf \
+#--maxGaussians 4 \
+#--percentBadVariants 0.05 \
+#-recalFile "$sampleID".snps.VarRecal.recal \
+#-tranchesFile "$sampleID".snps.VarRecal.tranches \
+#-resource:hapmap,known=false,training=true,truth=true,prior=15.0 $humanHapmapFile \
+#-resource:omni,known=false,training=true,truth=false,prior=12.0 $human1000GOmniFile \
+#-resource:dbsnp,known=true,training=false,truth=false,prior=6.0 $humanDbsnpFile \
+#-an QD -an HaplotypeScore -an MQRankSum -an ReadPosRankSum -an FS -an MQ -an DP \
+#-mode SNP \
+#-log "$sampleID".GATKsnps.VarRecal.log \
+#-rscriptFile "$sampleID".output.plots.R
+#
+#
+# applying the model parameters to each variant in input VCF files 
+#producing a recalibrated VCF file in which each variant is annotated 
+#with its VQSLOD value by GATK ApplyRecalibration (shorter: 1 minute)
+#
+#$javaPath/java -Xmx4g -Djava.io.tmpdir=$tmpDir \
+#-jar $gatkPath/GenomeAnalysisTK.jar \
+#-T ApplyRecalibration \
+#-R $humanRefSequence \
+#-input "$sampleID".GATKsnps.raw.vcf \
+#-recalFile "$sampleID".snps.VarRecal.recal \
+#-tranchesFile "$sampleID".snps.VarRecal.tranches \
+#--ts_filter_level 99.0 \
+#-mode SNP \
+#-log "$sampleID".snps.ApplyRecal.log \
+#-o "$sampleID".snps.recal.vcf
+#
+##################################################################################################
+##################################################################################################
+
+
+# manually filter snps by GATK VariantFilteration (hard filtration) for single sample(shorter: less than 1 minute)
+
+$javaPath/java -Xmx4g -Djava.io.tmpdir=$tmpDir \
+-jar $gatkPath/GenomeAnalysisTK.jar \
+-T VariantFiltration \
+-R $humanRefSequence \
+-o "$sampleID".snps.filtered.vcf \
+--variant "$sampleID".GATKsnps.raw.vcf \
+--filterName "QDfilter" --filterExpression "QD < 2.0" \
+--filterName "MQfilter" --filterExpression "MQ < 40.0" \
+--filterName "ReadPosRSfilter" --filterExpression "ReadPosRankSum < -8.0" \
+--filterName "FSfilter" --filterExpression "FS > 60.0" \
+--filterName "HaplotypeScorefilter" --filterExpression "HaplotypeScore > 13.0" \
+--filterName "MQRankSumfilter" --filterExpression "MQRankSum < -12.5" \
+--missingValuesInExpressionsShouldEvaluateAsFailing \
+-log "$sampleID".Snp.VariantFilt.log 
+
+
+
+# selecting indels from the Unified Genotyper raw VCF by GATK  SelectVariants
+
+#-Xmx4g is not enough memory for this part
+
+$javaPath/java -Xmx4g -Djava.io.tmpdir=$tmpDir \
+-jar $gatkPath/GenomeAnalysisTK.jar \
+-T SelectVariants \
+-R $humanRefSequence \
+--variant "$sampleID".GATKvariants.raw.vcf \
+-o "$sampleID".GATKindels.raw.vcf \
+-selectType INDEL \
+-log "$sampleID".SelectIndels.log
+
+
+
+############################## Not suitable for single sampel call #############################
+##################################################################################################
+#$javaPath/java -jar -Xmx4g $gatkPath/GenomeAnalysisTK.jar \
+#-T VariantRecalibrator \
+#-R $humanRefSequence \
+#-input "$sampleID".GATKindels.raw.vcf \
+#-recalFile "$sampleID".indels.VarRecal.recal \
+#-tranchesFile "$sampleID".indels.VarRecal.tranches \
+#--maxGaussians 4 -std 10.0 -percentBad 0.05 \
+#-resource:mills,known=true,training=true,truth=true,prior=12.0 $humanMills1000GIndelGold \
+#-an QD -an FS -an ReadPosRankSum \
+#-mode INDEL \
+#-log "$sampleID".GATKindels.VarRecal.log
+#
+#$javaPath/java -jar -Xmx4g $gatkPath/GenomeAnalysisTK.jar \
+#-T ApplyRecalibration \
+#-R $humanRefSequence \
+#-input "$sampleID".GATKsnps.raw.vcf \
+#-recalFile "$sampleID".indels.VarRecal.recal \
+#-tranchesFile "$sampleID".indels.VarRecal.tranches \
+#--ts_filter_level 95.0 \
+#-mode INDEL \
+#-log "$sampleID".indels.ApplyRecal.log \
+#-o "$sampleID".recal.indels.vcf \
+##################################################################################################
+##################################################################################################
+
+
+# manually filter indel by GATK VariantFilteration (hard filtration) for single sample(shorter: less than 1 minute)
+
+$javaPath/java -Xmx4g -Djava.io.tmpdir=$tmpDir \
+-jar $gatkPath/GenomeAnalysisTK.jar \
+-T VariantFiltration \
+-R $humanRefSequence \
+-o "$sampleID".indels.filtered.vcf \
+--variant "$sampleID".GATKindels.raw.vcf \
+--filterName "QDfilter" --filterExpression "QD < 2.0" \
+--filterName "ReadPosRSfilter" --filterExpression "ReadPosRankSum < -20.0" \
+--filterName "FSfilter" --filterExpression "FS > 200.0" \
+--missingValuesInExpressionsShouldEvaluateAsFailing \
+-log "$sampleID".Indel.VariantFilt.log 
+
+
+
+# combining filtered SNPs and filtered indels by GATK CombineVariants
+
+$javaPath/java -Djava.io.tmpdir=$tmpDir \
+-jar $gatkPath/GenomeAnalysisTK.jar \
+-T CombineVariants \
+-R $humanRefSequence \
+--variant:snps "$sampleID".snps.filtered.vcf \
+--variant:indel "$sampleID".indels.filtered.vcf \
+-o "$sampleID".SNPfiltered.Indelfiltered.vcf \
+-log "$sampleID".combineSNPIndel.log 
+
+
+qsub 5_snpeff_gatk_annotation
+
+# removing the auxiliary files
+
+rm "$sampleID".GATKsnps.raw.vcf
+rm "$sampleID".GATKsnps.raw.vcf.idx
+rm "$sampleID".output.plots.R
+rm "$sampleID".snps.VarRecal.recal
+rm "$sampleID".snps.VarRecal.recal.idx
+rm "$sampleID".snps.VarRecal.tranches
+rm "$sampleID".snps.filtered.vcf
+rm "$sampleID".snps.filtered.vcf.idx
+rm "$sampleID".GATKindels.raw.vcf
+rm "$sampleID".GATKindels.raw.vcf.idx
+rm "$sampleID".indels.filtered.vcf
+rm "$sampleID".indels.filtered.vcf.idx
+
+
